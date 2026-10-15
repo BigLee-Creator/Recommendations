@@ -1,0 +1,7 @@
+{
+  "name": "world-minesweeper-tools",
+  "private": true,
+  "description": "Generates the bundled city land masks and world outline for the game",
+  "scripts": { "data": "node build-data.mjs" },
+  "devDependencies": { "topojson-client": "3.1.0", "world-atlas": "2.0.2" }
+}

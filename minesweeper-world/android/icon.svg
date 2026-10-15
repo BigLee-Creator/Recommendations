@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#12395f"/><stop offset="1" stop-color="#071a2e"/></linearGradient>
+    <radialGradient id="bomb" cx="0.38" cy="0.35" r="0.7"><stop offset="0" stop-color="#5b6470"/><stop offset="1" stop-color="#14181d"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- land tiles -->
+  <g fill="#5f9250">
+    <rect x="64" y="300" width="70" height="70" rx="8"/><rect x="142" y="300" width="70" height="70" rx="8" fill="#efe5cf"/>
+    <rect x="220" y="300" width="70" height="70" rx="8" fill="#efe5cf"/><rect x="298" y="300" width="70" height="70" rx="8"/>
+    <rect x="376" y="300" width="70" height="70" rx="8" fill="#568a4a"/>
+    <rect x="64" y="378" width="70" height="70" rx="8" fill="#568a4a"/><rect x="142" y="378" width="70" height="70" rx="8" fill="#efe5cf"/>
+    <rect x="220" y="378" width="70" height="70" rx="8" fill="#efe5cf"/><rect x="298" y="378" width="70" height="70" rx="8" fill="#efe5cf"/>
+    <rect x="376" y="378" width="70" height="70" rx="8"/>
+  </g>
+  <text x="177" y="352" font-family="Arial, sans-serif" font-weight="900" font-size="56" fill="#2f6fdf" text-anchor="middle">1</text>
+  <text x="255" y="352" font-family="Arial, sans-serif" font-weight="900" font-size="56" fill="#2f9a47" text-anchor="middle">2</text>
+  <text x="333" y="430" font-family="Arial, sans-serif" font-weight="900" font-size="56" fill="#d8433a" text-anchor="middle">3</text>
+  <!-- flag -->
+  <rect x="405" y="316" width="8" height="40" fill="#222"/><path d="M413 314 L440 327 L413 340 Z" fill="#e5392f"/>
+  <!-- bomb -->
+  <circle cx="256" cy="178" r="96" fill="url(#bomb)"/>
+  <rect x="236" y="70" width="40" height="34" rx="6" fill="#2b3138"/>
+  <path d="M256 72 Q 270 30 318 40" stroke="#c9a46a" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <circle cx="322" cy="40" r="20" fill="#ffc53d"/><circle cx="322" cy="40" r="10" fill="#fff4c2"/>
+  <circle cx="224" cy="146" r="22" fill="#ffffff" opacity=".35"/>
+</svg>
