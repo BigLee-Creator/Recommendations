@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  :root { --line:#dadce0; --text:#202124; --sub:#5f6368; --accent:#1a73e8; --bg:#fff; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', Roboto, Arial, sans-serif; font-size: 13px; color: var(--text); margin: 0; padding: 12px; background: var(--bg); }
+  .bar { display: flex; gap: 6px; margin-bottom: 10px; }
+  .bar button { flex: 1; }
+  label { display: block; color: var(--sub); font-size: 12px; margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); background: #fff; }
+  textarea { min-height: 110px; resize: vertical; }
+  .row { display: flex; gap: 6px; }
+  .row > div { flex: 1; min-width: 0; }
+  button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); width: 100%; margin-top: 14px; padding: 9px; }
+  button.link { border: none; background: none; color: var(--accent); padding: 2px 0; font-size: 12px; }
+  .contacts { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-height: 120px; overflow: auto; }
+  .contacts label { display: flex; align-items: center; gap: 6px; margin: 2px 0; color: var(--text); font-size: 13px; }
+  .contacts input { width: auto; }
+  .muted { color: var(--sub); font-size: 12px; }
+  .check { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--text); }
+  .check input { width: auto; }
+  .add { display: none; gap: 6px; margin-top: 6px; }
+  .add.open { display: flex; }
+  #msg { margin-top: 10px; min-height: 18px; font-size: 12px; }
+  #msg.err { color: #c5221f; }
+  #msg.ok { color: #188038; }
+  .mode { font-size: 12px; color: var(--sub); margin-bottom: 4px; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button onclick="resetForm()">새로 입력</button>
+    <button onclick="loadSelected()">선택한 행 불러오기</button>
+  </div>
+  <div class="mode" id="mode">새 기록</div>
+
+  <div class="row">
+    <div><label>날짜</label><input type="date" id="date"></div>
+    <div><label>유형</label><select id="type"></select></div>
+  </div>
+  <div class="row">
+    <div><label>시작</label><input type="time" id="start"></div>
+    <div><label>종료</label><input type="time" id="end"></div>
+  </div>
+  <p class="muted">시작 시간을 비우면 종일 일정으로 올라갑니다.</p>
+
+  <label>고객사</label>
+  <select id="cust"></select>
+  <label>사업 <button class="link" onclick="toggleAdd('bizAdd')">+ 새 사업</button></label>
+  <select id="biz"></select>
+  <div class="add" id="bizAdd"><input id="bizNew" placeholder="새 사업 이름"><button onclick="addBiz()">추가</button></div>
+  <label>업무 <button class="link" onclick="toggleAdd('taskAdd')">+ 새 업무</button></label>
+  <select id="task"></select>
+  <div class="add" id="taskAdd"><input id="taskNew" placeholder="새 업무 이름"><button onclick="addTask()">추가</button></div>
+
+  <label>제목</label>
+  <input id="title" placeholder="예: 주간 회의">
+  <label>내용·노트</label>
+  <textarea id="note"></textarea>
+
+  <label>담당자 (여러 명 선택 가능)</label>
+  <div class="contacts" id="contacts"><span class="muted">고객사를 먼저 고르세요.</span></div>
+
+  <div class="row">
+    <div><label>상태</label><select id="status"></select></div>
+  </div>
+  <label>다음 액션</label>
+  <input id="next" placeholder="예: 견적서 보내기">
+  <label>다음 액션 기한</label>
+  <input type="date" id="nextDue">
+  <p class="muted">기한을 넣으면 '할 일' 캘린더에 작업이 자동으로 생깁니다.</p>
+  <label>첨부 링크</label>
+  <input id="link" placeholder="드라이브 문서·메일 링크">
+  <label class="check"><input type="checkbox" id="sync" checked> 캘린더에 올리기</label>
+
+  <button class="primary" id="save" onclick="save()">저장</button>
+  <div id="msg"></div>
+
+<script>
+  let D = null;
+  let editingId = '';
+  const $ = (id) => document.getElementById(id);
+
+  function opt(sel, items, value, blank) {
+    sel.innerHTML = '';
+    if (blank !== undefined) sel.add(new Option(blank, ''));
+    items.forEach(i => sel.add(new Option(i, i)));
+    if (value !== undefined && value !== null) {
+      if (value && items.indexOf(value) < 0) sel.add(new Option(value, value));
+      sel.value = value;
+    }
+  }
+
+  function msg(text, cls) { $('msg').textContent = text || ''; $('msg').className = cls || ''; }
+
+  function init(data) {
+    D = data;
+    opt($('type'), D.types, $('type').value || '미팅');
+    opt($('status'), D.statuses, $('status').value || '', '(자동)');
+    opt($('cust'), D.customers.concat([D.personal]), $('cust').value || '', '고객사 선택');
+    onCust(true);
+  }
+
+  function onCust(keep) {
+    const c = $('cust').value;
+    const personal = c === D.personal;
+    const bizList = personal ? [] : Object.keys(D.tree[c] || {});
+    opt($('biz'), bizList, keep ? $('biz').value : '', personal ? '-' : '사업 선택');
+    $('biz').disabled = personal;
+    onBiz(keep);
+    renderContacts(keep ? selectedContacts() : []);
+  }
+
+  function onBiz(keep) {
+    const c = $('cust').value, b = $('biz').value;
+    const tasks = (D.tree[c] && D.tree[c][b]) || [];
+    opt($('task'), tasks, keep ? $('task').value : '', c === D.personal ? '-' : '업무 선택');
+    $('task').disabled = c === D.personal;
+  }
+
+  function selectedContacts() {
+    return Array.from(document.querySelectorAll('#contacts input:checked')).map(i => i.value);
+  }
+
+  function renderContacts(selected) {
+    const box = $('contacts');
+    const list = (D.contacts[$('cust').value] || []).slice();
+    selected.forEach(s => { if (s && list.indexOf(s) < 0) list.push(s); });
+    if (!list.length) { box.innerHTML = '<span class="muted">등록된 담당자가 없습니다. 연락처 시트에 추가하세요.</span>'; return; }
+    box.innerHTML = '';
+    list.forEach(name => {
+      const l = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = name; cb.checked = selected.indexOf(name) >= 0;
+      l.appendChild(cb); l.appendChild(document.createTextNode(name));
+      box.appendChild(l);
+    });
+  }
+
+  function onType() {
+    const t = $('type').value;
+    if (t === '미팅' && !$('note').value.trim()) $('note').value = D.template;
+    if (!editingId) $('sync').checked = t !== '메모';
+  }
+
+  function toggleAdd(id) { $(id).classList.toggle('open'); }
+
+  function addBiz() {
+    const c = $('cust').value, b = $('bizNew').value.trim();
+    if (!c || c === D.personal) return msg('고객사를 먼저 고르세요.', 'err');
+    if (!b) return;
+    google.script.run.withSuccessHandler(d => {
+      init(d); $('biz').value = b; onBiz(false); $('bizNew').value = ''; toggleAdd('bizAdd'); msg('사업을 추가했습니다.', 'ok');
+    }).withFailureHandler(e => msg(e.message, 'err')).addMasterItem(c, b, '');
+  }
+
+  function addTask() {
+    const c = $('cust').value, b = $('biz').value, t = $('taskNew').value.trim();
+    if (!c || !b) return msg('고객사와 사업을 먼저 고르세요.', 'err');
+    if (!t) return;
+    google.script.run.withSuccessHandler(d => {
+      init(d); $('biz').value = b; onBiz(false); $('task').value = t; $('taskNew').value = ''; toggleAdd('taskAdd'); msg('업무를 추가했습니다.', 'ok');
+    }).withFailureHandler(e => msg(e.message, 'err')).addMasterItem(c, b, t);
+  }
+
+  function resetForm() {
+    editingId = '';
+    $('mode').textContent = '새 기록';
+    ['start', 'end', 'title', 'note', 'next', 'nextDue', 'link'].forEach(id => $(id).value = '');
+    $('date').value = D.today;
+    $('type').value = '미팅';
+    $('status').value = '';
+    $('sync').checked = true;
+    onType();
+    renderContacts([]);
+    msg('');
+  }
+
+  function loadSelected() {
+    msg('불러오는 중…');
+    google.script.run.withSuccessHandler(f => {
+      editingId = f.id;
+      $('mode').textContent = '수정 중: ' + (f.title || f.date);
+      $('date').value = f.date; $('start').value = f.start; $('end').value = f.end;
+      $('type').value = f.type || '미팅';
+      opt($('cust'), D.customers.concat([D.personal]), f.cust, '고객사 선택');
+      onCust(false);
+      opt($('biz'), Object.keys(D.tree[f.cust] || {}), f.biz, f.cust === D.personal ? '-' : '사업 선택');
+      onBiz(false);
+      opt($('task'), (D.tree[f.cust] && D.tree[f.cust][f.biz]) || [], f.task, f.cust === D.personal ? '-' : '업무 선택');
+      $('title').value = f.title; $('note').value = f.note;
+      renderContacts(f.contacts);
+      $('status').value = f.status; $('next').value = f.next; $('nextDue').value = f.nextDue;
+      $('link').value = f.link; $('sync').checked = f.sync;
+      msg('');
+    }).withFailureHandler(e => msg(e.message, 'err')).loadSelectedRecord();
+  }
+
+  function save() {
+    const f = {
+      id: editingId, date: $('date').value, start: $('start').value, end: $('end').value,
+      cust: $('cust').value, biz: $('biz').value, task: $('task').value, type: $('type').value,
+      title: $('title').value, note: $('note').value, contacts: selectedContacts(),
+      status: $('status').value, next: $('next').value, nextDue: $('nextDue').value,
+      link: $('link').value, sync: $('sync').checked,
+    };
+    if (!f.cust) return msg('고객사를 고르세요.', 'err');
+    $('save').disabled = true;
+    msg('저장 중… (캘린더 반영까지 몇 초 걸립니다)');
+    google.script.run.withSuccessHandler(text => {
+      $('save').disabled = false;
+      msg(text, 'ok');
+      if (!editingId) resetForm(), msg(text, 'ok');
+    }).withFailureHandler(e => { $('save').disabled = false; msg(e.message, 'err'); }).saveRecord(f);
+  }
+
+  $('cust').addEventListener('change', () => onCust(false));
+  $('biz').addEventListener('change', () => onBiz(false));
+  $('type').addEventListener('change', onType);
+
+  google.script.run.withSuccessHandler(d => { init(d); resetForm(); })
+    .withFailureHandler(e => msg(e.message, 'err')).getSidebarData();
+</script>
+</body>
+</html>
