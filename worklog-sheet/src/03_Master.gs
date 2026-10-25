@@ -1,6 +1,37 @@
 /** 마스터(고객사 > 사업 > 업무)·연락처 목록과 드롭다운 */
 
 /**
+ * 마스터 시트의 열 위치를 1행 제목으로 찾는다.
+ * 사용자가 [구분] 같은 열을 어디에 끼워 넣어도 '고객사/사업/업무/비활성/비고' 제목만 있으면 동작한다.
+ */
+function masterCols_(sh) {
+  const width = Math.max(sh.getLastColumn(), MASTER_HEADERS.length);
+  const head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  const find = function (name, fallback) {
+    const i = head.indexOf(name);
+    return i >= 0 ? i : fallback;
+  };
+  return {
+    width: width,
+    cust: find('고객사', M.CUST),
+    biz: find('사업', M.BIZ),
+    task: find('업무', M.TASK),
+    inactive: find('비활성', M.INACTIVE),
+    memo: find('비고', M.MEMO),
+  };
+}
+
+/** 마스터 시트 2행부터 마지막 데이터 행까지 (빈 체크박스 행은 제외) */
+function masterRows_(sh, mc) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const rows = sh.getRange(2, 1, last - 1, mc.width).getValues();
+  let n = rows.length;
+  while (n > 0 && !String(rows[n - 1][mc.cust]).trim() && !String(rows[n - 1][mc.biz]).trim() && !String(rows[n - 1][mc.task]).trim()) n--;
+  return rows.slice(0, n);
+}
+
+/**
  * 마스터 시트를 트리로 읽는다.
  * { 고객사: { active, biz: { 사업: { active, tasks: { 업무: active } } } } }
  */
@@ -8,12 +39,13 @@ function readMaster_() {
   const sh = sheet_(SHEET.MASTER);
   const tree = {};
   if (!sh || sh.getLastRow() < 2) return tree;
-  sh.getRange(2, 1, sh.getLastRow() - 1, MASTER_HEADERS.length).getValues().forEach(function (r) {
-    const cust = String(r[M.CUST]).trim();
+  const mc = masterCols_(sh);
+  masterRows_(sh, mc).forEach(function (r) {
+    const cust = String(r[mc.cust]).trim();
     if (!cust) return;
-    const biz = String(r[M.BIZ]).trim();
-    const task = String(r[M.TASK]).trim();
-    const active = r[M.INACTIVE] !== true;
+    const biz = String(r[mc.biz]).trim();
+    const task = String(r[mc.task]).trim();
+    const active = r[mc.inactive] !== true;
     const c = tree[cust] || (tree[cust] = { active: false, biz: {} });
     if (active) c.active = true;
     if (!biz) return;
@@ -94,24 +126,40 @@ function addMasterItem(cust, biz, task) {
   task = String(task || '').trim();
   if (!cust) throw new Error('고객사를 입력하세요.');
   const sh = sheet_(SHEET.MASTER);
-  const last = sh.getLastRow();
-  const rows = last > 1 ? sh.getRange(2, 1, last - 1, 3).getValues() : [];
+  const mc = masterCols_(sh);
+  const rows = masterRows_(sh, mc);
+  const val = function (r, c) { return String(r[c]).trim(); };
   // 같은 고객사/사업에 업무가 비어 있는 행이 있으면 그 행을 채운다
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    if (r[0] === cust && (r[1] === biz || (!r[1] && biz)) && !r[2]) {
-      sh.getRange(i + 2, 2, 1, 3).setValues([[biz, task, false]]);
+    if (val(r, mc.cust) !== cust) continue;
+    if ((val(r, mc.biz) === biz || (!val(r, mc.biz) && biz)) && !val(r, mc.task)) {
+      sh.getRange(i + 2, mc.biz + 1).setValue(biz);
+      sh.getRange(i + 2, mc.task + 1).setValue(task);
+      sh.getRange(i + 2, mc.inactive + 1).setValue(false);
       rebuildLists_();
       return getSidebarData();
     }
-    if (r[0] === cust && r[1] === biz && r[2] === task) {
-      sh.getRange(i + 2, 4).setValue(false);
+    if (val(r, mc.biz) === biz && val(r, mc.task) === task) {
+      sh.getRange(i + 2, mc.inactive + 1).setValue(false);
       rebuildLists_();
       return getSidebarData();
     }
   }
-  sh.appendRow([cust, biz, task, false, '']);
-  sh.getRange(sh.getLastRow(), 4).insertCheckboxes().setValue(false);
+  // 새 행: [구분]처럼 사용자가 추가한 열은 같은 고객사(가능하면 같은 사업) 행의 값을 물려받는다
+  const known = [mc.cust, mc.biz, mc.task, mc.inactive, mc.memo];
+  const tpl = rows.filter(function (r) { return val(r, mc.cust) === cust && val(r, mc.biz) === biz; })[0] ||
+    rows.filter(function (r) { return val(r, mc.cust) === cust; })[0];
+  const row = new Array(mc.width).fill('');
+  if (tpl) for (let j = 0; j < mc.width; j++) if (known.indexOf(j) < 0) row[j] = tpl[j];
+  row[mc.cust] = cust;
+  row[mc.biz] = biz;
+  row[mc.task] = task;
+  row[mc.inactive] = false;
+  const at = rows.length + 2;
+  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 100);
+  sh.getRange(at, 1, 1, mc.width).setValues([row]);
+  sh.getRange(at, mc.inactive + 1).insertCheckboxes().setValue(false);
   rebuildLists_();
   return getSidebarData();
 }
@@ -146,12 +194,13 @@ function renameMasterItem() {
     };
     // 마스터
     const ms = sheet_(SHEET.MASTER);
-    if (ms.getLastRow() > 1) {
-      const range = ms.getRange(2, 1, ms.getLastRow() - 1, 3);
-      const vals = range.getValues();
-      vals.forEach(function (r) { if (match(r[0], r[1], r[2])) r[level - 1] = newName; });
-      range.setValues(vals);
-    }
+    const mc = masterCols_(ms);
+    const mcol = [mc.cust, mc.biz, mc.task][level - 1];
+    masterRows_(ms, mc).forEach(function (r, i) {
+      if (match(String(r[mc.cust]).trim(), String(r[mc.biz]).trim(), String(r[mc.task]).trim())) {
+        ms.getRange(i + 2, mcol + 1).setValue(newName);
+      }
+    });
     // 기록 (이름이 바뀐 행은 캘린더 제목도 바뀌도록 수정시각 갱신)
     const data = readRecords_();
     const col = [R.CUST, R.BIZ, R.TASK][level - 1];

@@ -85,6 +85,7 @@ const TYPE_COLOR = { '미팅': '9', '통화': '10', '작업': '5', '메모': '8'
 
 const MEETING_TEMPLATE = '참석자: \n논의: \n결정: \n할 일: ';
 const DESC_MARK = '— 업무기록 —';
+const EXCLUDE_DESC = '개인 캘린더 일정 중 제목에 이 단어가 들어가면 시트에 넣지 않음 (쉼표로 여러 개, 비우면 제외 안 함)';
 
 // 설정 시트 기본값: [항목, 값, 설명]
 const SETTING_DEFAULTS = [
@@ -102,6 +103,7 @@ const SETTING_DEFAULTS = [
   ['시간 일정 알림(분)', 60, '업무·할 일 캘린더의 시간 일정 알림'],
   ['이월 경고 횟수', 3, '이 횟수 이상 이월되면 표시'],
   ['대량 삭제 기준', 20, '한 번에 이보다 많은 일정이 지워지려 하면 멈추고 확인'],
+  ['제외 키워드', '생일', EXCLUDE_DESC],
   ['이전 연도 파일 ID', '', ''],
   ['다음 연도 파일 ID', '', '새 연도 파일을 만들면 자동 입력'],
   ['웹앱 URL', '', '브리핑 메일의 [완료 처리] 버튼용. 배포 후 자동 감지'],
@@ -529,6 +531,37 @@ function readPrevYearRecords_() {
 /** 마스터(고객사 > 사업 > 업무)·연락처 목록과 드롭다운 */
 
 /**
+ * 마스터 시트의 열 위치를 1행 제목으로 찾는다.
+ * 사용자가 [구분] 같은 열을 어디에 끼워 넣어도 '고객사/사업/업무/비활성/비고' 제목만 있으면 동작한다.
+ */
+function masterCols_(sh) {
+  const width = Math.max(sh.getLastColumn(), MASTER_HEADERS.length);
+  const head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  const find = function (name, fallback) {
+    const i = head.indexOf(name);
+    return i >= 0 ? i : fallback;
+  };
+  return {
+    width: width,
+    cust: find('고객사', M.CUST),
+    biz: find('사업', M.BIZ),
+    task: find('업무', M.TASK),
+    inactive: find('비활성', M.INACTIVE),
+    memo: find('비고', M.MEMO),
+  };
+}
+
+/** 마스터 시트 2행부터 마지막 데이터 행까지 (빈 체크박스 행은 제외) */
+function masterRows_(sh, mc) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const rows = sh.getRange(2, 1, last - 1, mc.width).getValues();
+  let n = rows.length;
+  while (n > 0 && !String(rows[n - 1][mc.cust]).trim() && !String(rows[n - 1][mc.biz]).trim() && !String(rows[n - 1][mc.task]).trim()) n--;
+  return rows.slice(0, n);
+}
+
+/**
  * 마스터 시트를 트리로 읽는다.
  * { 고객사: { active, biz: { 사업: { active, tasks: { 업무: active } } } } }
  */
@@ -536,12 +569,13 @@ function readMaster_() {
   const sh = sheet_(SHEET.MASTER);
   const tree = {};
   if (!sh || sh.getLastRow() < 2) return tree;
-  sh.getRange(2, 1, sh.getLastRow() - 1, MASTER_HEADERS.length).getValues().forEach(function (r) {
-    const cust = String(r[M.CUST]).trim();
+  const mc = masterCols_(sh);
+  masterRows_(sh, mc).forEach(function (r) {
+    const cust = String(r[mc.cust]).trim();
     if (!cust) return;
-    const biz = String(r[M.BIZ]).trim();
-    const task = String(r[M.TASK]).trim();
-    const active = r[M.INACTIVE] !== true;
+    const biz = String(r[mc.biz]).trim();
+    const task = String(r[mc.task]).trim();
+    const active = r[mc.inactive] !== true;
     const c = tree[cust] || (tree[cust] = { active: false, biz: {} });
     if (active) c.active = true;
     if (!biz) return;
@@ -622,24 +656,40 @@ function addMasterItem(cust, biz, task) {
   task = String(task || '').trim();
   if (!cust) throw new Error('고객사를 입력하세요.');
   const sh = sheet_(SHEET.MASTER);
-  const last = sh.getLastRow();
-  const rows = last > 1 ? sh.getRange(2, 1, last - 1, 3).getValues() : [];
+  const mc = masterCols_(sh);
+  const rows = masterRows_(sh, mc);
+  const val = function (r, c) { return String(r[c]).trim(); };
   // 같은 고객사/사업에 업무가 비어 있는 행이 있으면 그 행을 채운다
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    if (r[0] === cust && (r[1] === biz || (!r[1] && biz)) && !r[2]) {
-      sh.getRange(i + 2, 2, 1, 3).setValues([[biz, task, false]]);
+    if (val(r, mc.cust) !== cust) continue;
+    if ((val(r, mc.biz) === biz || (!val(r, mc.biz) && biz)) && !val(r, mc.task)) {
+      sh.getRange(i + 2, mc.biz + 1).setValue(biz);
+      sh.getRange(i + 2, mc.task + 1).setValue(task);
+      sh.getRange(i + 2, mc.inactive + 1).setValue(false);
       rebuildLists_();
       return getSidebarData();
     }
-    if (r[0] === cust && r[1] === biz && r[2] === task) {
-      sh.getRange(i + 2, 4).setValue(false);
+    if (val(r, mc.biz) === biz && val(r, mc.task) === task) {
+      sh.getRange(i + 2, mc.inactive + 1).setValue(false);
       rebuildLists_();
       return getSidebarData();
     }
   }
-  sh.appendRow([cust, biz, task, false, '']);
-  sh.getRange(sh.getLastRow(), 4).insertCheckboxes().setValue(false);
+  // 새 행: [구분]처럼 사용자가 추가한 열은 같은 고객사(가능하면 같은 사업) 행의 값을 물려받는다
+  const known = [mc.cust, mc.biz, mc.task, mc.inactive, mc.memo];
+  const tpl = rows.filter(function (r) { return val(r, mc.cust) === cust && val(r, mc.biz) === biz; })[0] ||
+    rows.filter(function (r) { return val(r, mc.cust) === cust; })[0];
+  const row = new Array(mc.width).fill('');
+  if (tpl) for (let j = 0; j < mc.width; j++) if (known.indexOf(j) < 0) row[j] = tpl[j];
+  row[mc.cust] = cust;
+  row[mc.biz] = biz;
+  row[mc.task] = task;
+  row[mc.inactive] = false;
+  const at = rows.length + 2;
+  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 100);
+  sh.getRange(at, 1, 1, mc.width).setValues([row]);
+  sh.getRange(at, mc.inactive + 1).insertCheckboxes().setValue(false);
   rebuildLists_();
   return getSidebarData();
 }
@@ -674,12 +724,13 @@ function renameMasterItem() {
     };
     // 마스터
     const ms = sheet_(SHEET.MASTER);
-    if (ms.getLastRow() > 1) {
-      const range = ms.getRange(2, 1, ms.getLastRow() - 1, 3);
-      const vals = range.getValues();
-      vals.forEach(function (r) { if (match(r[0], r[1], r[2])) r[level - 1] = newName; });
-      range.setValues(vals);
-    }
+    const mc = masterCols_(ms);
+    const mcol = [mc.cust, mc.biz, mc.task][level - 1];
+    masterRows_(ms, mc).forEach(function (r, i) {
+      if (match(String(r[mc.cust]).trim(), String(r[mc.biz]).trim(), String(r[mc.task]).trim())) {
+        ms.getRange(i + 2, mcol + 1).setValue(newName);
+      }
+    });
     // 기록 (이름이 바뀐 행은 캘린더 제목도 바뀌도록 수정시각 갱신)
     const data = readRecords_();
     const col = [R.CUST, R.BIZ, R.TASK][level - 1];
@@ -783,6 +834,7 @@ function pullCalendars_(windowPass) {
     newRows: [],
     newKeys: {},
     myFile: ss_().getId(),
+    exclude: excludeKeywords_(),
   };
   [CAL.WORK, CAL.TODO, CAL.PERSONAL].forEach(function (key) {
     const calId = ids[key];
@@ -798,6 +850,48 @@ function pullCalendars_(windowPass) {
     appendRecords_(data.sheet, ctx.newRows);
     log_('가져오기', '캘린더에서 새 일정 ' + ctx.newRows.length + '건을 가져옴', '');
   }
+  removeExcludedRows_(ctx.exclude);
+}
+
+/** 설정 '제외 키워드' (쉼표 구분). 설정 행이 없으면 '생일'로 만들어 둔다 */
+function excludeKeywords_() {
+  const map = settings_();
+  if (!Object.prototype.hasOwnProperty.call(map, '제외 키워드')) {
+    const sh = sheet_(SHEET.SETTINGS);
+    sh.getRange(sh.getLastRow() + 1, 1, 1, 3).setValues([['제외 키워드', '생일', EXCLUDE_DESC]]);
+    SETTINGS_CACHE_ = null;
+    return ['생일'];
+  }
+  return String(map['제외 키워드'] || '').split(',')
+    .map(function (s) { return s.trim().toLowerCase(); }).filter(String);
+}
+
+function isExcluded_(title, keywords) {
+  const t = String(title || '').toLowerCase();
+  return keywords.some(function (k) { return t.indexOf(k) >= 0; });
+}
+
+/**
+ * 이미 시트에 들어온 [개인일정] 중 제외 키워드가 든 행을 시트에서만 뺀다.
+ * 캘린더 일정은 그대로 두기 위해 _연동 목록에서도 함께 지운다 (지운 행으로 오인해 일정을 삭제하지 않도록).
+ */
+function removeExcludedRows_(keywords) {
+  if (!keywords.length) return;
+  const data = readRecords_();
+  const targets = data.list.filter(function (rec) {
+    return rec.v[R.CUST] === PERSONAL && rec.v[R.EVENT_ID] && isExcluded_(rec.v[R.TITLE], keywords);
+  });
+  if (!targets.length) return;
+  const removed = {};
+  targets.sort(function (a, b) { return b.r - a.r; }).forEach(function (rec) {
+    if (String(data.sheet.getRange(rec.r, R.ID + 1).getValue()) !== rec.v[R.ID]) return;
+    data.sheet.deleteRow(rec.r);
+    removed[rec.v[R.ID]] = true;
+  });
+  const idx = sheet_(SHEET.INDEX);
+  const old = idx.getLastRow() > 1 ? idx.getRange(2, 1, idx.getLastRow() - 1, 3).getValues() : [];
+  writeIndex_(idx, old.filter(function (r) { return !removed[r[0]]; }));
+  log_('제외', '제외 키워드가 든 개인 일정 ' + Object.keys(removed).length + '건을 시트에서 뺌 (캘린더에는 그대로)', '');
 }
 
 /** 마지막 동기화 이후 바뀐 일정 (처음이거나 오래됐으면 전체) */
@@ -899,6 +993,7 @@ function processIncoming_(ev, key, ctx) {
   // 시트에 없는 일정
   if (gone) return;
   if (priv.wlRowId) return; // 시트에서 지운 행(삭제 대기) 또는 다른 연도 파일의 행
+  if (key === CAL.PERSONAL && isExcluded_(ev.summary, ctx.exclude)) return;
   if (ctx.newKeys[key + '|' + ev.id]) return;
   const start = eventStart_(ev);
   if (!start.date) return;
@@ -1999,7 +2094,11 @@ function syncContacts_() {
     newRows.push(row);
   });
   if (newRows.length) {
-    const start = sh.getLastRow() + 1;
+    let start = 2;
+    for (let i = raw.length - 1; i >= 0; i--) {
+      if (String(raw[i][C.NAME]).trim() || String(raw[i][C.CUST]).trim()) { start = i + 3; break; }
+    }
+    if (start + newRows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), newRows.length + 100);
     sh.getRange(start, 1, newRows.length, CONTACT_HEADERS.length).setValues(newRows);
     sh.getRange(start, C.INACTIVE + 1, newRows.length, 1).insertCheckboxes();
     sh.getRange(start, C.INACTIVE + 1, newRows.length, 1).setValues(newRows.map(function () { return [false]; }));
@@ -2550,7 +2649,16 @@ function applyRecordFormatting_(sh) {
 
 function setupMasterSheet_(isNew) {
   const sh = sheet_(SHEET.MASTER);
-  sh.getRange(1, 1, 1, MASTER_HEADERS.length).setValues([MASTER_HEADERS]).setFontWeight('bold').setBackground('#f1f3f4');
+  // 사용자가 [구분] 등 열을 추가했을 수 있으므로 기존 제목은 덮어쓰지 않고, 빠진 제목만 오른쪽에 붙인다
+  const width = Math.max(sh.getLastColumn(), 1);
+  const head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  if (!head.some(String)) {
+    sh.getRange(1, 1, 1, MASTER_HEADERS.length).setValues([MASTER_HEADERS]);
+  } else {
+    let next = width + 1;
+    MASTER_HEADERS.forEach(function (h) { if (head.indexOf(h) < 0) sh.getRange(1, next++).setValue(h); });
+  }
+  sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#f1f3f4');
   sh.setFrozenRows(1);
   if (isNew) {
     sh.getRange(2, 1, 3, 5).setValues([
@@ -2563,7 +2671,7 @@ function setupMasterSheet_(isNew) {
     sh.getRange('F1').setValue('한 줄에 업무 하나. 쓰지 않는 항목은 지우지 말고 "비활성"에 체크하세요. 이름 변경은 메뉴 > 이름 바꾸기.')
       .setFontColor('#5f6368');
   }
-  sh.getRange(2, M.INACTIVE + 1, Math.max(sh.getMaxRows() - 1, 1), 1).insertCheckboxes();
+  sh.getRange(2, masterCols_(sh).inactive + 1, Math.max(sh.getMaxRows() - 1, 1), 1).insertCheckboxes();
 }
 
 function setupContactSheet_(isNew) {

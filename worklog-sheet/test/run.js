@@ -373,6 +373,57 @@ step('양쪽 동시 수정: 나중에 고친 쪽이 이김', () => {
   assert(T.cal.store('cal-업무')[id].description.startsWith('시트 두 번째'));
 });
 
+step('마스터 A열에 [구분]을 끼워 넣어도 제목으로 열을 찾아 동작', () => {
+  const ms = T.ss.getSheetByName('마스터');
+  ms.rows = ms.rows.map((r, i) => [i === 0 ? '구분' : (r && r[0] ? (r[0] === 'A사' ? '관제' : '기타') : '')].concat(r || []));
+  const tree = JSON.parse(run('JSON.stringify(readMaster_())'));
+  assert(tree['A사'] && tree['A사'].biz['보안관제'], 'A사 트리 유지');
+  assert(!tree['관제'], '구분 값이 고객사로 읽히면 안 됨');
+  run("addMasterItem('A사', '보안관제', '분기 보고')");
+  const rows = ms.getRange(1, 1, ms.getLastRow(), 6).getValues();
+  const last = rows.map((r, i) => [r, i]).filter(([r]) => r[1] || r[2] || r[3]).pop();
+  assert.strictEqual(last[0][3], '분기 보고', '새 업무는 마지막 데이터 행 바로 아래');
+  assert.strictEqual(last[0][0], '관제', '구분 값은 같은 고객사 행에서 물려받음');
+  assert.strictEqual(last[0][1], 'A사');
+  assert(last[1] < 20, '빈 체크박스 행(1000행) 아래로 가지 않음');
+  run('setupMasterSheet_(false)');
+  assert.strictEqual(ms.getRange(1, 1).getValue(), '구분', '초기 설정을 다시 해도 [구분] 제목 유지');
+  const d = JSON.parse(run('JSON.stringify(getSidebarData())'));
+  assert(d.tree['A사']['보안관제'].includes('분기 보고'));
+});
+
+step('주소록에서 가져온 새 연락처는 마지막 데이터 행 바로 아래', () => {
+  const g = 'contactGroups/고객사';
+  T.people.people['people/x1'] = { resourceName: 'people/x1', etag: 'x', names: [{ displayName: '박팀장' }],
+    organizations: [{ name: 'B사' }], memberships: [{ contactGroupMembership: { contactGroupResourceName: g } }],
+    metadata: { sources: [{ type: 'CONTACT', updateTime: new Date(Date.now()).toISOString() }] } };
+  run('syncContacts()');
+  assert.strictEqual(T.ss.getSheetByName('연락처').getRange(3, 2).getValue(), '박팀장');
+});
+
+step('개인 캘린더의 "생일" 일정은 시트에 넣지 않음 (캘린더는 그대로)', () => {
+  assert.strictEqual(run("settings_()['제외 키워드']"), '생일');
+  T.advance(60000);
+  const ev = T.cal.userCreate('me@example.com', { summary: '엄마 생일', start: { date: '2026-10-28' }, end: { date: '2026-10-29' } });
+  T.advance(60000);
+  run('syncAll()');
+  assert(!findRow('엄마 생일'), '새 생일 일정은 안 들어옴');
+  // 이미 들어와 있던 생일 행 정리: 키워드를 끄고 가져온 뒤 다시 켜기
+  run("setSetting_('제외 키워드', '')");
+  run("setState_('pulledAt:개인', '')");
+  run('syncAll()');
+  assert(findRow('엄마 생일'), '키워드를 비우면 들어옴');
+  run("setSetting_('제외 키워드', '생일, 기념일')");
+  run('syncAll()');
+  assert(!findRow('엄마 생일'), '키워드를 다시 넣으면 시트에서 빠짐');
+  assert.strictEqual(T.cal.store('me@example.com')[ev.id].status, 'confirmed', '캘린더 일정은 지우지 않음');
+  run("setState_('pulledAt:개인', '')");
+  run('syncAll()');
+  assert(!findRow('엄마 생일'));
+  assert.strictEqual(T.cal.store('me@example.com')[ev.id].status, 'confirmed');
+  assert(findRow('치과'), '다른 개인 일정은 그대로');
+});
+
 step('제목 해석 단위 테스트', () => {
   const p = (s, k) => JSON.parse(run(`JSON.stringify(parseTitle_(${JSON.stringify(s)}, ${JSON.stringify(k)}))`));
   assert.deepStrictEqual(p('[A사/사업1] 주간회의', '업무'), { cust: 'A사', biz: '사업1', title: '주간회의', done: false, undone: false });

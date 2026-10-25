@@ -60,6 +60,7 @@ function pullCalendars_(windowPass) {
     newRows: [],
     newKeys: {},
     myFile: ss_().getId(),
+    exclude: excludeKeywords_(),
   };
   [CAL.WORK, CAL.TODO, CAL.PERSONAL].forEach(function (key) {
     const calId = ids[key];
@@ -75,6 +76,48 @@ function pullCalendars_(windowPass) {
     appendRecords_(data.sheet, ctx.newRows);
     log_('가져오기', '캘린더에서 새 일정 ' + ctx.newRows.length + '건을 가져옴', '');
   }
+  removeExcludedRows_(ctx.exclude);
+}
+
+/** 설정 '제외 키워드' (쉼표 구분). 설정 행이 없으면 '생일'로 만들어 둔다 */
+function excludeKeywords_() {
+  const map = settings_();
+  if (!Object.prototype.hasOwnProperty.call(map, '제외 키워드')) {
+    const sh = sheet_(SHEET.SETTINGS);
+    sh.getRange(sh.getLastRow() + 1, 1, 1, 3).setValues([['제외 키워드', '생일', EXCLUDE_DESC]]);
+    SETTINGS_CACHE_ = null;
+    return ['생일'];
+  }
+  return String(map['제외 키워드'] || '').split(',')
+    .map(function (s) { return s.trim().toLowerCase(); }).filter(String);
+}
+
+function isExcluded_(title, keywords) {
+  const t = String(title || '').toLowerCase();
+  return keywords.some(function (k) { return t.indexOf(k) >= 0; });
+}
+
+/**
+ * 이미 시트에 들어온 [개인일정] 중 제외 키워드가 든 행을 시트에서만 뺀다.
+ * 캘린더 일정은 그대로 두기 위해 _연동 목록에서도 함께 지운다 (지운 행으로 오인해 일정을 삭제하지 않도록).
+ */
+function removeExcludedRows_(keywords) {
+  if (!keywords.length) return;
+  const data = readRecords_();
+  const targets = data.list.filter(function (rec) {
+    return rec.v[R.CUST] === PERSONAL && rec.v[R.EVENT_ID] && isExcluded_(rec.v[R.TITLE], keywords);
+  });
+  if (!targets.length) return;
+  const removed = {};
+  targets.sort(function (a, b) { return b.r - a.r; }).forEach(function (rec) {
+    if (String(data.sheet.getRange(rec.r, R.ID + 1).getValue()) !== rec.v[R.ID]) return;
+    data.sheet.deleteRow(rec.r);
+    removed[rec.v[R.ID]] = true;
+  });
+  const idx = sheet_(SHEET.INDEX);
+  const old = idx.getLastRow() > 1 ? idx.getRange(2, 1, idx.getLastRow() - 1, 3).getValues() : [];
+  writeIndex_(idx, old.filter(function (r) { return !removed[r[0]]; }));
+  log_('제외', '제외 키워드가 든 개인 일정 ' + Object.keys(removed).length + '건을 시트에서 뺌 (캘린더에는 그대로)', '');
 }
 
 /** 마지막 동기화 이후 바뀐 일정 (처음이거나 오래됐으면 전체) */
@@ -176,6 +219,7 @@ function processIncoming_(ev, key, ctx) {
   // 시트에 없는 일정
   if (gone) return;
   if (priv.wlRowId) return; // 시트에서 지운 행(삭제 대기) 또는 다른 연도 파일의 행
+  if (key === CAL.PERSONAL && isExcluded_(ev.summary, ctx.exclude)) return;
   if (ctx.newKeys[key + '|' + ev.id]) return;
   const start = eventStart_(ev);
   if (!start.date) return;

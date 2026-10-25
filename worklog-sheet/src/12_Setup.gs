@@ -182,7 +182,16 @@ function applyRecordFormatting_(sh) {
 
 function setupMasterSheet_(isNew) {
   const sh = sheet_(SHEET.MASTER);
-  sh.getRange(1, 1, 1, MASTER_HEADERS.length).setValues([MASTER_HEADERS]).setFontWeight('bold').setBackground('#f1f3f4');
+  // 사용자가 [구분] 등 열을 추가했을 수 있으므로 기존 제목은 덮어쓰지 않고, 빠진 제목만 오른쪽에 붙인다
+  const width = Math.max(sh.getLastColumn(), 1);
+  const head = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  if (!head.some(String)) {
+    sh.getRange(1, 1, 1, MASTER_HEADERS.length).setValues([MASTER_HEADERS]);
+  } else {
+    let next = width + 1;
+    MASTER_HEADERS.forEach(function (h) { if (head.indexOf(h) < 0) sh.getRange(1, next++).setValue(h); });
+  }
+  sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#f1f3f4');
   sh.setFrozenRows(1);
   if (isNew) {
     sh.getRange(2, 1, 3, 5).setValues([
@@ -195,7 +204,7 @@ function setupMasterSheet_(isNew) {
     sh.getRange('F1').setValue('한 줄에 업무 하나. 쓰지 않는 항목은 지우지 말고 "비활성"에 체크하세요. 이름 변경은 메뉴 > 이름 바꾸기.')
       .setFontColor('#5f6368');
   }
-  sh.getRange(2, M.INACTIVE + 1, Math.max(sh.getMaxRows() - 1, 1), 1).insertCheckboxes();
+  sh.getRange(2, masterCols_(sh).inactive + 1, Math.max(sh.getMaxRows() - 1, 1), 1).insertCheckboxes();
 }
 
 function setupContactSheet_(isNew) {

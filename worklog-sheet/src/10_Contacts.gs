@@ -123,7 +123,11 @@ function syncContacts_() {
     newRows.push(row);
   });
   if (newRows.length) {
-    const start = sh.getLastRow() + 1;
+    let start = 2;
+    for (let i = raw.length - 1; i >= 0; i--) {
+      if (String(raw[i][C.NAME]).trim() || String(raw[i][C.CUST]).trim()) { start = i + 3; break; }
+    }
+    if (start + newRows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), newRows.length + 100);
     sh.getRange(start, 1, newRows.length, CONTACT_HEADERS.length).setValues(newRows);
     sh.getRange(start, C.INACTIVE + 1, newRows.length, 1).insertCheckboxes();
     sh.getRange(start, C.INACTIVE + 1, newRows.length, 1).setValues(newRows.map(function () { return [false]; }));
