@@ -17,6 +17,7 @@ function onOpen() {
     .addItem('서식·대시보드 다시 적용', 'reapplyFormatting')
     .addItem('새 연도 파일 만들기', 'createNextYearFile')
     .addSeparator()
+    .addItem('사용법 시트 열기', 'openGuide')
     .addItem('초기 설정 (처음 한 번)', 'initialSetup')
     .addToUi();
 }
@@ -55,9 +56,9 @@ function initialSetup() {
       fresh[name] = true;
     }
   });
-  // 빈 기본 시트(시트1 / Sheet1) 정리
+  // 새 파일에 기본으로 생기는 빈 '시트1 / Sheet1'만 정리 (사용자가 추가한 시트는 비어 있어도 건드리지 않음)
   ss.getSheets().forEach(function (sh) {
-    if (order.indexOf(sh.getName()) < 0 && sh.getLastRow() === 0 && ss.getSheets().length > order.length) ss.deleteSheet(sh);
+    if (/^(시트|Sheet)\d+$/.test(sh.getName()) && sh.getLastRow() === 0 && ss.getSheets().length > order.length) ss.deleteSheet(sh);
   });
 
   setupSettings_();
@@ -73,13 +74,14 @@ function initialSetup() {
   if (fresh[SHEET.SEARCH]) buildSearch_();
   if (fresh[SHEET.ANALYSIS]) buildAnalysis_();
   installTriggers_();
-  ss.setActiveSheet(ss.getSheetByName(SHEET.MASTER));
+  ss.setActiveSheet(buildGuide_());
 
   ui.alert('초기 설정 완료',
     '1) 마스터 시트에 고객사·사업·업무를 입력하세요 (예시 행은 지워도 됩니다).\n' +
     '2) 연락처 시트에 고객사 담당자를 입력하세요.\n' +
     '3) 구글 캘린더에서 "업무"·"할 일" 캘린더의 종일 일정 알림을 "당일 오전 8:30"으로 설정하세요.\n' +
     '4) 메일의 [완료 처리] 버튼을 쓰려면 웹앱으로 배포하세요 (설치 가이드 참고).\n\n' +
+    '자세한 사용법과 주의사항은 "📖 사용법" 시트에 있습니다.\n' +
     '첫 캘린더 동기화는 메뉴 > 지금 캘린더 동기화로 바로 실행하거나 10분 안에 자동으로 실행됩니다.',
     ui.ButtonSet.OK);
 }

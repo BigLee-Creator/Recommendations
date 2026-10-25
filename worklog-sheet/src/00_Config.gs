@@ -9,6 +9,7 @@ const TZ = 'Asia/Seoul';
 const APP_NAME = '업무기록';
 
 const SHEET = {
+  GUIDE: '📖 사용법',
   RECORD: '기록',
   DASHBOARD: '대시보드',
   MONTHLY: '월간',

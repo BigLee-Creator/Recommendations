@@ -424,6 +424,18 @@ step('개인 캘린더의 "생일" 일정은 시트에 넣지 않음 (캘린더�
   assert(findRow('치과'), '다른 개인 일정은 그대로');
 });
 
+step('직접 추가한 시트는 초기 설정을 다시 해도 남고, 사용법 시트가 생김', () => {
+  T.ss.insertSheet('내 메모');
+  run('initialSetup()');
+  assert(T.ss.getSheetByName('내 메모'), '사용자 시트 유지');
+  const g = T.ss.getSheetByName('📖 사용법');
+  assert(g, '사용법 시트 생성');
+  const text = g.getRange(1, 1, g.getLastRow(), 4).getValues().map(r => r.join(' ')).join('\n');
+  assert(text.includes('주의사항') && text.includes('"생일, 기념일"'), '설정값(제외 키워드) 반영');
+  run('openGuide()');
+  assert.strictEqual(T.ss.getSheets().filter(s => s.name === '📖 사용법').length, 1, '다시 열어도 하나');
+});
+
 step('제목 해석 단위 테스트', () => {
   const p = (s, k) => JSON.parse(run(`JSON.stringify(parseTitle_(${JSON.stringify(s)}, ${JSON.stringify(k)}))`));
   assert.deepStrictEqual(p('[A사/사업1] 주간회의', '업무'), { cust: 'A사', biz: '사업1', title: '주간회의', done: false, undone: false });
